@@ -9,7 +9,7 @@
 1. fork하기
 2. {개인 계정}/{n}장/{닉네임}.md 파일 생성하고 공부한 내용 정리하기
 3. 커멋하기 
-4. 공용 레포에 PR 올리기 ex) 2024-SQLP-Study/chinjeolhan-SQL-Tuning:master <- yooputer/chinjeolhan-SQL-Tuning:master
+4. 공용 레포에 PR 올리기 ex) 2024-SQLP-Study/chinjeolhan-SQL-Tuning:main <- yooputer/chinjeolhan-SQL-Tuning:main
 5. 머지하기
 ---
 ### 🏷️ 목차
