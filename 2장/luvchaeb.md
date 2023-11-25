@@ -65,7 +65,7 @@ WHERE LIKE 업체명 '%대한%'
 3. OR조건을 사용했을 경우(IN절도 마찬가지)  
 WHERE 전화번호 = '010-1234-5678' OR 고객명 ='홍길동'
 전화번호가 010-1234-5678이거나 고객명이 홍길동인 시작점을 찾을 수 없으므로 RANGE SCAN안탐
---> UNION ALL을 사용하면 해결 가능!!
+> UNION ALL을 사용하면 해결 가능!!
    SELECT *
    FROM 고객
    WHERE 전화번호 = '010-1234-5678'
@@ -76,7 +76,7 @@ WHERE 전화번호 = '010-1234-5678' OR 고객명 ='홍길동'
 
    ### 인덱스의 선행조건
    1. 인덱스의 선두컬럼이 **가공되지않은 상태***로 WHERE절에 와야함
-   --> 하지만 RANGE SCAN을 탄다고해서 무조건 성능이 좋다고 할 수 없음
+   > 하지만 RANGE SCAN을 탄다고해서 무조건 성능이 좋다고 할 수 없음
 
   ex)주문상품_IN = (주문일자 , 상품번호) 인경우  
   SELECT *  
@@ -178,16 +178,16 @@ WHERE n_col = v_col
 ORA-01722: 수치가 부적합 합니다  
 숫자형컬럼인 n_col과 문자형 컬럼인 v_col을 비교하면 숫자형이 이기기 때문에 숫자형으로 자동형변환이 되는데, 만약 n_col에 숫자로 변환할 수 없는 값이 들어있다면 쿼리 수행도중 에러남  
 
-2) 쿼리 결과 오류가 생기는 케이스
-가장 많이 받는 직원 급여 5,000
-두번째로 많이 받는 직원 급여 3,000
-SELECT ROUND(AVG(SAL)) AVG_SAL, MIN(SAL) MIN_SAL, MAX(SAL) MAX_SAL, MAX(DECODE(JOB, 'PRESIDENT', NULL SAL)) MAX_SAL2
-AVG_SAL|MIN_SAL|MAX_SAL|MAX_SAL2|
-|2073|800|5000|950|
-MAX_SAL2에는 3,000이 나와야 하는데 왜 950이 나왔을까?
-이유: MAX(DECODE(JOB, 'PRESIDENT', **NULL**, SAL)) MAX_SAL2
-decode함수가 가진 내부규칙은 세번째 인자가 null인경우 varchar(2)로 취급한다  
-숫자형일때는 3,000이 950보다 크지만 문자형일 경우 950이 더 크므로 MAX_SAL2의 값이 950이 됨
+2) 쿼리 결과 오류가 생기는 케이스  
+가장 많이 받는 직원 급여 5,000  
+두번째로 많이 받는 직원 급여 3,000  
+SELECT ROUND(AVG(SAL)) AVG_SAL, MIN(SAL) MIN_SAL, MAX(SAL) MAX_SAL, MAX(DECODE(JOB, 'PRESIDENT', NULL SAL)) MAX_SAL2  
+AVG_SAL|MIN_SAL|MAX_SAL|MAX_SAL2|  
+|2073|800|5000|950|  
+MAX_SAL2에는 3,000이 나와야 하는데 왜 950이 나왔을까?  
+이유: MAX(DECODE(JOB, 'PRESIDENT', **NULL**, SAL)) MAX_SAL2  
+decode함수가 가진 내부규칙은 세번째 인자가 null인경우 varchar(2)로 취급한다    
+숫자형일때는 3,000이 950보다 크지만 문자형일 경우 950이 더 크므로 MAX_SAL2의 값이 950이 됨  
 
 ***>>> 즉, 자동형변환에 의존하지 말고 인덱스 컬럼 기준으로 정확히 형변환을 해주어야 한다***
 ***>>> TO_CHAR, TO_DATE와 같은 형변환 생략시 연산횟수가 주는것도 아님***
