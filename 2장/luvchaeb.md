@@ -98,6 +98,7 @@ INDEX RANGE SCAN을 할 수 있는 이유 = 데이터가 정렬되어있기 때�
 |------|---|---|
 |...|...|...|
 |...|...|...|
+|...|...|...|
 |**C**|**20231124**|**00001**|
 |**C**|**20231124**|**00002**|
 |**C**|**20231124**|**00003**|
@@ -131,10 +132,116 @@ WHERE ROWNUM  <= 30
 **해결책 : ORDER BY 주문번호 -> ORDER BY A.주문번호로 변경**  
 
 ### 2.2.6 SELECT-LIST에서 컬럼 가공      
-   
+인덱스 (장비번호, 변경일자, 변경순번)으로 되어있을 때 
+SELECT NVL(MAX(TO_NUMBER(변경순번),0)  
+FROM 상태변경이력  
+WHERE 장비번호 = 'C'  
+AND 변경일자 ='20231125'  
+인덱스 정렬에서 변경순번은 가공되지 않은 값으로 정렬할텐데 해당 쿼리는 변경순번을 가공했기 때문에 정렬연산 생략할 수 없음  
+
+SELECT NVL(TO_NUMBER(MAX(변경순번),0)
+FROM 상태변경이력  
+WHERE 장비번호 = 'C'  
+AND 변경일자 ='20231125'  
+변경순번에서 가장 큰 큰 값을 먼저 찾기 때문에 정렬연산없이 가능함  -> 다만 변경순번값의 자릿수가 고정이 되어있어야 함  
+-> 사실... 모델링시 변경순번의 데이터타입을 숫자로 설계했다면 튜닝할 일이 생기지 않음 
+
+### 2.2.7 자동 형변환  
+SELECT *  
+FROM 고객  
+WHERE 생년월일 = 20231125
+생년월일의 데이터타입이 문자인데, 쿼리작성시 숫자형으로 작성하게되면 숫자로 인식하기 때문에 Full scan을 탐 
 
 
-    
+SELECT *  
+FROM  고객  
+WHERE 가입일자 ='01-JAN-2018'  
+가입일자가 날짜타입이므로 인덱스 사용에는 문제가 없지만, 정확한 날짜 포맷을 지정하지 않는 경우 컴파일 오류가 나거나, 결과집합이 틀려질 수 있음  
+
+**숫자 VS 문자 -> 숫자가 이김** 
+**날짜 VS 문자 -> 날짜가 이김**  
+
+연산자가 LIKE인 경우  
+LIKE 자체가 문자열 비교 연산자이므로 문자가 이김  
+SELECT *  
+FROM 거래 
+WHERE 계좌번호 LIKE :act_no || '%' 
+AND 거래일자 BETWEEN :trd_dt1 and :trd_dt2  
+조회시 사용자가 계좌번호를 입력하지 않으면, act_no에 null을 입력함으로써 모든 계좌번호가 조회가 되게 처리하는데  이런경우 like와 between을 함께 사용했기 때문에 인덱스 효율 떨어짐  
+> like 사용시 숫자형이 문자형으로 변경되는데, 계좌번호의 데이터 타입이 숫자인경우 문자형으로 자동 형변환이되어 인덱스 액세스 조건이 될 수 없음
+> 거래일자,계좌번호 순으로 구성된 인덱스는 INDEX SCAN을 타지만 거래일자 조회 범위에 속한 데이터를 모두 읽으면서 계좌번호를 필터링 하므로 효율성 떨어짐
+
+**자동 형변환 주의** 
+1) 쿼리 수행 도중 에러나는 케이스   
+WHERE n_col = v_col  
+2행에 오류:
+ORA-01722: 수치가 부적합 합니다  
+숫자형컬럼인 n_col과 문자형 컬럼인 v_col을 비교하면 숫자형이 이기기 때문에 숫자형으로 자동형변환이 되는데, 만약 n_col에 숫자로 변환할 수 없는 값이 들어있다면 쿼리 수행도중 에러남  
+
+2) 쿼리 결과 오류가 생기는 케이스
+가장 많이 받는 직원 급여 5,000
+두번째로 많이 받는 직원 급여 3,000
+SELECT ROUND(AVG(SAL)) AVG_SAL, MIN(SAL) MIN_SAL, MAX(SAL) MAX_SAL, MAX(DECODE(JOB, 'PRESIDENT', NULL SAL)) MAX_SAL2
+AVG_SAL|MIN_SAL|MAX_SAL|MAX_SAL2|
+|2073|800|5000|950|
+MAX_SAL2에는 3,000이 나와야 하는데 왜 950이 나왔을까?
+이유: MAX(DECODE(JOB, 'PRESIDENT', **NULL**, SAL)) MAX_SAL2
+decode함수가 가진 내부규칙은 세번째 인자가 null인경우 varchar(2)로 취급한다  
+숫자형일때는 3,000이 950보다 크지만 문자형일 경우 950이 더 크므로 MAX_SAL2의 값이 950이 됨
+
+***>>> 즉, 자동형변환에 의존하지 말고 인덱스 컬럼 기준으로 정확히 형변환을 해주어야 한다***
+***>>> TO_CHAR, TO_DATE와 같은 형변환 생략시 연산횟수가 주는것도 아님***
+
+## 2.3 인덱스 확장기능 사용법  
+### 2.3.1 Index range scan
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/67acab84-05aa-43a6-9b23-fd8b08116fe2)  
+인덱스 루트에서 리프블록까지 수직적으로 탐색 후 필요한 범위만 스캔 (가장 일반적이로 정상적인 형태의 액세스 방식)  
+선두컬럼 가공하지 않은 상태에서 조건절에 사용해야함  
+
+### 2.3.2 Index Full scan
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/29177090-dc7f-495c-b453-c22dd54c7e15)  
+수직적 탐색 없이 인덱스 리프 블록을 처음부터 끝까지 탐색하는 방식  
+최적의 인덱스가 없는경우 선택  
+
+**Index Full Scan의 효용성**  
+인덱스의 선두컬럼이 조건절에 없으면 먼저 table full scan을 고려하는데 대용량 테이블일 경우 인덱스 활용을 다시 고려해야함  
+인덱스를 range scan할 수 없을때 대용량 테이블이 아니라 적은 테이블인경우 테이블 전체를 스캔하기 보다 인덱스 전체 스캔을 하는것이 더 낫다.  
+
+### 2.3.3 Index Unique scan  
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/39e68b28-43eb-4ba0-bdad-b784deb2efcc)  
+그림에서와 같이 인덱스를 수직적으로 탐색하는 스캔방식으로 유니크 인덱스를 = 조건으로 탐색하는 경우 작동  
+
+### 2.3.4 Index Skip scan  
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/551751cd-bcfd-4180-af29-5757ed327629)  
+오라클에서 인덱스 선두 컬럼이 조건절에 없어도 인덱스를 활용할 수있는 스캔 방식  
+조건절에 빠진 인덱스 선두 컬럼이 Distinct Value 갯수가 적고 후행 컬럼의 Distinct Valut가 많을때 유용 
+ex) 고객테이블에서 Distinct vlaue 갯수가 가장 적은 컬럼은 성별 / Distinct value의 갯수가 가장 많은 컬럼은 고객번호 
+
+**INDEX SKIP SCAN이 작동하기 위한 조건**  
+1. Distinct vlaue가 적은 선두컬럼이 조건절에 없고 후행컬럼의 Distinct vlaue의 갯수가 많을때
+2. 결합인덱스가 3개의 컬럼으로 구성되어 있는 경우, 선두컬럼에 대한 조건은 있으나 중간컬럼에 대한 조건이 없는 경우  
+3. Distinct vlaue가 적은 두개의 선두컬럼이 모두 조건절에 없는 경우
+4. 선두컬럼이 부등로, BETWEEN, LIKE와 같은 범위검색 조건인 경우
+
+### 2.3.5 Index Skip scan  
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/5f78fa2e-eb99-47d9-ad64-b20f8df6f710)  
+논리적인 인덱스 트리 구조를 무시하고 인덱스 세그먼트 전체를 Multiblock I/0방식으로 스캔하기 때문에 Index Full Scan보다 빠르다  
+디스크로부터 대량의 인덱스 블록을 읽어야 할 때 좋음  
+연결리스트 구조를 무시하고 데이터를 읽기 때문에 인덱스 키 순서대로 정렬 X  
+쿼리에 사용한 컬럼이 모두 인덱스에 포함되어 있을때만 사용 가능  
+인덱스가 파티션되어있지 않더라도 병렬쿼리가 가능함 (병렬 쿼리시 Direct Patch I/0 방식을 사용)  
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/4f1fd831-ed16-4a8d-a2fb-f5c76c1212d1)
+
+### 2.3.6 Index Skip Descending  
+![image](https://github.com/luvchaeb/chinjeolhan-SQL-Tuning/assets/49854801/edf37cd1-06e7-4381-8000-d0caa7532ed8)  
+Index range scan과 동일한 방식이지만 인덱스를 뒤쪽부터 스캔하기때문에 내림차순으로 정렬된 결과 집합을 얻는다 
+
+
+
+
+
+
+
 
  
 
